@@ -1,0 +1,501 @@
+{
+  "info": {
+    "name": "CampusFix Backend API",
+    "description": "Ready-to-run Postman collection for testing all CampusFix Flask + SQLite backend endpoints.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:5000",
+      "type": "string"
+    },
+    {
+      "key": "complaintId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "trackingId",
+      "value": "CMP-2026-0001",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Health Check (GET /)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "pm.test('Health message returned', () => pm.expect(pm.response.json().message).to.include('CampusFix'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/"
+      }
+    },
+    {
+      "name": "2. Create Complaint (POST /api/complaints)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 201', () => pm.response.to.have.status(201));",
+              "const data = pm.response.json();",
+              "pm.test('Returns id and tracking_id', () => {",
+              "  pm.expect(data.id).to.be.a('number');",
+              "  pm.expect(data.tracking_id).to.match(/^CMP-\\d{4}-\\d{4}$/);",
+              "});",
+              "pm.collectionVariables.set('complaintId', String(data.id));",
+              "pm.collectionVariables.set('trackingId', data.tracking_id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Water Leakage\",\n  \"description\": \"Water is leaking from the ceiling near the classroom.\",\n  \"category\": \"Plumbing\",\n  \"location\": \"Block B - Room 204\",\n  \"priority\": \"High\"\n}"
+        },
+        "url": "{{baseUrl}}/api/complaints"
+      }
+    },
+    {
+      "name": "3. Fetch All Complaints (GET /api/complaints)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "pm.test('Returns an array', () => pm.expect(pm.response.json()).to.be.an('array'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/complaints"
+      }
+    },
+    {
+      "name": "4. Search & Filter Complaints (GET /api/complaints?search=...)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "pm.test('At least 1 matching complaint', () => pm.expect(pm.response.json().length).to.be.above(0));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/complaints?search=water&category=Plumbing&sort=priority"
+      }
+    },
+    {
+      "name": "5. Get Single Complaint (GET /api/complaints/:id)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "pm.test('Includes history array', () => pm.expect(pm.response.json().history).to.be.an('array'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/complaints/{{complaintId}}"
+      }
+    },
+    {
+      "name": "6. Track by Tracking ID (GET /api/complaints/track/:trackingId)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "pm.test('Matches tracking_id', () => pm.expect(pm.response.json().tracking_id).to.eql(pm.collectionVariables.get('trackingId')));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/complaints/track/{{trackingId}}"
+      }
+    },
+    {
+      "name": "7. Assign Staff (PATCH /api/complaints/:id/assign)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "pm.test('Assigned and status updated', () => {",
+              "  const d = pm.response.json();",
+              "  pm.expect(d.assigned_to).to.eql('Maintenance Team A');",
+              "  pm.expect(d.status).to.eql('Assigned');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"assigned_to\": \"Maintenance Team A\"\n}"
+        },
+        "url": "{{baseUrl}}/api/complaints/{{complaintId}}/assign"
+      }
+    },
+    {
+      "name": "8. Update Priority (PATCH /api/complaints/:id/priority)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "pm.test('Priority is Critical', () => pm.expect(pm.response.json().priority).to.eql('Critical'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"priority\": \"Critical\"\n}"
+        },
+        "url": "{{baseUrl}}/api/complaints/{{complaintId}}/priority"
+      }
+    },
+    {
+      "name": "9. Update Status (PATCH /api/complaints/:id/status)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "pm.test('Status is In Progress', () => pm.expect(pm.response.json().status).to.eql('In Progress'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"status\": \"In Progress\",\n  \"note\": \"Plumber inspecting ceiling pipe\"\n}"
+        },
+        "url": "{{baseUrl}}/api/complaints/{{complaintId}}/status"
+      }
+    },
+    {
+      "name": "10. Update Status via PUT (PUT /api/complaints/:id)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "pm.test('Status is Resolved', () => pm.expect(pm.response.json().status).to.eql('Resolved'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"status\": \"Resolved\"\n}"
+        },
+        "url": "{{baseUrl}}/api/complaints/{{complaintId}}"
+      }
+    },
+    {
+      "name": "11. Complaint History Timeline (GET /api/complaints/:id/history)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "pm.test('Has multiple timeline entries', () => pm.expect(pm.response.json().length).to.be.above(1));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/complaints/{{complaintId}}/history"
+      }
+    },
+    {
+      "name": "12. Dashboard Stats (GET /api/dashboard/stats)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "const d = pm.response.json();",
+              "pm.test('Has analytics breakdowns', () => {",
+              "  pm.expect(d).to.have.property('total');",
+              "  pm.expect(d).to.have.property('by_category');",
+              "  pm.expect(d).to.have.property('by_priority');",
+              "  pm.expect(d).to.have.property('by_month');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/dashboard/stats"
+      }
+    },
+    {
+      "name": "13. Category Stats (GET /api/dashboard/categories)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "pm.test('Has categories list', () => pm.expect(pm.response.json().categories).to.be.an('array'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/dashboard/categories"
+      }
+    },
+    {
+      "name": "14. Dashboard Trends (GET /api/dashboard/trends)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "const d = pm.response.json();",
+              "pm.test('Has monthly and daily trends', () => {",
+              "  pm.expect(d.monthly).to.be.an('array');",
+              "  pm.expect(d.daily).to.be.an('array');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/dashboard/trends"
+      }
+    },
+    {
+      "name": "15. AI Classify Complaint (POST /api/ai/classify)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "const d = pm.response.json();",
+              "pm.test('Suggests Plumbing & High', () => {",
+              "  pm.expect(d.category).to.eql('Plumbing');",
+              "  pm.expect(d.priority).to.eql('High');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Ceiling Leak\",\n  \"description\": \"Water is leaking from the ceiling.\",\n  \"location\": \"Block B - Room 204\"\n}"
+        },
+        "url": "{{baseUrl}}/api/ai/classify"
+      }
+    },
+    {
+      "name": "16. Export CSV Report (GET /api/complaints/export)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "pm.test('Returns text/csv', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('text/csv'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/complaints/export"
+      }
+    },
+    {
+      "name": "17. Validation Error Test (POST empty -> 400)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Returns 400 Bad Request', () => pm.response.to.have.status(400));",
+              "pm.test('Contains error field', () => pm.expect(pm.response.json()).to.have.property('error'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"   \"\n}"
+        },
+        "url": "{{baseUrl}}/api/complaints"
+      }
+    },
+    {
+      "name": "18. Not Found Error Test (PUT 9999 -> 404)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Returns 404 Not Found', () => pm.response.to.have.status(404));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"status\": \"Resolved\"\n}"
+        },
+        "url": "{{baseUrl}}/api/complaints/9999"
+      }
+    },
+    {
+      "name": "19. Delete Test Complaint (DELETE /api/complaints/:id)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "pm.test('Deleted message returned', () => pm.expect(pm.response.json().message).to.include('deleted'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": "{{baseUrl}}/api/complaints/{{complaintId}}"
+      }
+    }
+  ]
+}

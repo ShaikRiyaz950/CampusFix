@@ -1,0 +1,10 @@
+{
+  "name": "campusfix",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "backend": "backend\\venv\\Scripts\\python.exe backend\\app.py",
+    "test:backend": "backend\\venv\\Scripts\\pytest.exe backend\\tests\\test_api.py -v"
+  }
+}
