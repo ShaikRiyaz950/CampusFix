@@ -9,6 +9,16 @@ from flask import Blueprint, Response, jsonify, request, send_from_directory
 from ai_service import analyze_complaint, get_gemini_config, is_gemini_configured
 from auth import create_notification, get_optional_user
 from database import UPLOADS_DIR, generate_tracking_id, get_connection
+from integrations import (
+    build_complaint_email_html,
+    delete_complaint_from_supabase_async,
+    get_integrations_status,
+    send_email_async,
+    send_email_sync,
+    sync_complaint_to_supabase_async,
+    sync_complaint_to_supabase_sync,
+    upload_image_to_cloudinary,
+)
 
 complaint_bp = Blueprint(
     "complaints",
@@ -46,6 +56,13 @@ def _fetch_history(conn, complaint_id):
         (complaint_id,)
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+def _get_user_email(conn, user_id):
+    if not user_id:
+        return None
+    row = conn.execute("SELECT email FROM users WHERE id = ?", (user_id,)).fetchone()
+    return row["email"] if row else None
 
 
 def _validate_text_field(field, value):
@@ -266,7 +283,23 @@ def create_complaint():
             f"Your complaint '{cleaned['title']}' has been received.",
         )
     conn.commit()
+    created_row = conn.execute("SELECT * FROM complaints WHERE id = ?", (complaint_id,)).fetchone()
     conn.close()
+
+    if created_row:
+        sync_complaint_to_supabase_async(dict(created_row))
+    if user and user.get("email"):
+        send_email_async(
+            user["email"],
+            f"CampusFix Ticket Logged: {tracking_id}",
+            build_complaint_email_html(
+                "Complaint Received",
+                tracking_id,
+                cleaned["title"],
+                "Pending",
+                f"Location: {cleaned['location']} • Category: {cleaned['category']} • Priority: {priority}",
+            ),
+        )
 
     response_payload = {
         "message": "Complaint submitted successfully",
@@ -472,8 +505,12 @@ def update_complaint(complaint_id):
             )
 
     conn.commit()
+    updated_row = conn.execute("SELECT * FROM complaints WHERE id = ?", (complaint_id,)).fetchone()
     history = _fetch_history(conn, complaint_id)
     conn.close()
+
+    if updated_row:
+        sync_complaint_to_supabase_async(dict(updated_row))
 
     response_body = {
         "message": "Complaint updated successfully",
@@ -538,9 +575,26 @@ def patch_complaint_status(complaint_id):
                 f"{existing['tracking_id']} ({existing['title']}) is now {status}.",
             )
 
+    owner_email = _get_user_email(conn, existing["user_id"])
     conn.commit()
+    updated_row = conn.execute("SELECT * FROM complaints WHERE id = ?", (complaint_id,)).fetchone()
     history = _fetch_history(conn, complaint_id)
     conn.close()
+
+    if updated_row:
+        sync_complaint_to_supabase_async(dict(updated_row))
+    if owner_email and status != existing["status"]:
+        send_email_async(
+            owner_email,
+            f"CampusFix Status Update ({existing['tracking_id']}): {status}",
+            build_complaint_email_html(
+                f"Status Changed to {status}",
+                existing["tracking_id"],
+                existing["title"],
+                status,
+                note,
+            ),
+        )
 
     return jsonify({
         "message": "Complaint status updated successfully",
@@ -589,7 +643,11 @@ def patch_complaint_priority(complaint_id):
             (complaint_id, existing["status"], f"Priority changed to {priority}")
         )
     conn.commit()
+    updated_row = conn.execute("SELECT * FROM complaints WHERE id = ?", (complaint_id,)).fetchone()
     conn.close()
+
+    if updated_row:
+        sync_complaint_to_supabase_async(dict(updated_row))
 
     return jsonify({
         "message": "Complaint priority updated successfully",
@@ -644,9 +702,26 @@ def assign_complaint(complaint_id):
             f"Assigned: {existing['tracking_id']}",
             f"{assigned_to} has been assigned to '{existing['title']}'.",
         )
+    owner_email = _get_user_email(conn, existing["user_id"])
     conn.commit()
+    updated_row = conn.execute("SELECT * FROM complaints WHERE id = ?", (complaint_id,)).fetchone()
     history = _fetch_history(conn, complaint_id)
     conn.close()
+
+    if updated_row:
+        sync_complaint_to_supabase_async(dict(updated_row))
+    if owner_email:
+        send_email_async(
+            owner_email,
+            f"CampusFix Assigned ({existing['tracking_id']}): {assigned_to}",
+            build_complaint_email_html(
+                "Maintenance Staff Assigned",
+                existing["tracking_id"],
+                existing["title"],
+                new_status,
+                f"Assigned to: {assigned_to}",
+            ),
+        )
 
     return jsonify({
         "message": "Complaint assigned successfully",
@@ -678,6 +753,7 @@ def delete_complaint(complaint_id):
     if deleted_rows == 0:
         return jsonify({"error": "Complaint not found"}), 404
 
+    delete_complaint_from_supabase_async(complaint_id)
     return jsonify({"message": "Complaint deleted successfully"})
 
 
@@ -925,16 +1001,34 @@ def upload_complaint_image(complaint_id):
         conn.close()
         return jsonify({"error": "Complaint not found"}), 404
 
-    os.makedirs(UPLOADS_DIR, exist_ok=True)
-    safe_name = f"cmp_{complaint_id}_{uuid.uuid4().hex[:10]}{ext}"
-    file.save(os.path.join(UPLOADS_DIR, safe_name))
-    image_url = f"/api/uploads/{safe_name}"
+    file_bytes = file.read()
+    public_id = f"cmp_{complaint_id}_{uuid.uuid4().hex[:10]}"
+    cloud_url, _cloud_err = upload_image_to_cloudinary(file_bytes, file.filename, public_id)
+
+    if cloud_url:
+        image_url = cloud_url
+        storage = "cloudinary"
+    else:
+        os.makedirs(UPLOADS_DIR, exist_ok=True)
+        safe_name = f"{public_id}{ext}"
+        with open(os.path.join(UPLOADS_DIR, safe_name), "wb") as fh:
+            fh.write(file_bytes)
+        image_url = f"/api/uploads/{safe_name}"
+        storage = "local"
 
     conn.execute("UPDATE complaints SET image_url = ? WHERE id = ?", (image_url, complaint_id))
     conn.commit()
+    updated_row = conn.execute("SELECT * FROM complaints WHERE id = ?", (complaint_id,)).fetchone()
     conn.close()
 
-    return jsonify({"message": "Image uploaded successfully", "image_url": image_url}), 201
+    if updated_row:
+        sync_complaint_to_supabase_async(dict(updated_row))
+
+    return jsonify({
+        "message": "Image uploaded successfully",
+        "image_url": image_url,
+        "storage": storage,
+    }), 201
 
 
 @complaint_bp.route("/uploads/<path:filename>", methods=["GET"])
@@ -982,3 +1076,55 @@ def submit_complaint_feedback(complaint_id):
         "rating": rating,
         "feedback_comment": comment,
     })
+
+
+@complaint_bp.route("/integrations/status", methods=["GET"])
+def integrations_status():
+    return jsonify(get_integrations_status())
+
+
+@complaint_bp.route("/integrations/test-email", methods=["POST"])
+def test_resend_email():
+    data = request.get_json(silent=True) or {}
+    to_email = (data.get("to") or "").strip()
+    if not to_email:
+        return jsonify({"error": "Recipient email ('to') is required"}), 400
+
+    ok, detail = send_email_sync(
+        to_email,
+        "CampusFix Resend Integration Test",
+        build_complaint_email_html(
+            "Resend Email Connected!",
+            "CMP-TEST-0001",
+            "Integration Verification",
+            "Active",
+            "Your CampusFix backend successfully sent this test email via Resend.",
+        ),
+    )
+    if not ok:
+        return jsonify({"ok": False, "error": detail}), 502
+    return jsonify({"ok": True, "email_id": detail})
+
+
+@complaint_bp.route("/integrations/supabase/sync", methods=["POST"])
+def sync_all_to_supabase():
+    conn = get_connection()
+    rows = conn.execute("SELECT * FROM complaints ORDER BY id ASC").fetchall()
+    conn.close()
+
+    synced = 0
+    errors = []
+    for row in rows:
+        ok, detail = sync_complaint_to_supabase_sync(dict(row))
+        if ok:
+            synced += 1
+        else:
+            errors.append({"id": row["id"], "error": detail})
+
+    status_code = 200 if not errors else 207
+    return jsonify({
+        "total": len(rows),
+        "synced": synced,
+        "failed": len(errors),
+        "errors": errors[:5],
+    }), status_code

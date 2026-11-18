@@ -438,3 +438,14 @@ def test_auth_register_login_profile_and_rbac(client):
     )
     assert img.status_code == 201
     assert img.get_json()["image_url"].startswith("/api/uploads/")
+    assert img.get_json()["storage"] == "local"
+
+    # Integrations status endpoint reports config without leaking any secret values
+    integ = client.get("/api/integrations/status")
+    assert integ.status_code == 200
+    body = integ.get_json()
+    for key in ("database", "gemini_ai", "resend_email", "cloudinary", "google_maps"):
+        assert key in body
+    raw_text = integ.get_data(as_text=True)
+    assert "api_secret" not in raw_text.lower()
+    assert "sb_secret_" not in raw_text

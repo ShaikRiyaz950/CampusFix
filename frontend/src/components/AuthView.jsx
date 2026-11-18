@@ -66,7 +66,11 @@ export default function AuthView({ onAuthSuccess, theme, onToggleTheme, onReplay
       saveSession(data.token, data.user, rememberMe);
       onAuthSuccess(data.user);
     } catch (err) {
-      setError(err.response?.data?.error || "Login failed. Check your credentials and Flask server.");
+      if (!err.response || (err.response.status >= 500 && !err.response.data?.error)) {
+        setError("Cannot reach the CampusFix backend server (http://127.0.0.1:5000). Run 'npm run backend' or start backend/app.py.");
+      } else {
+        setError(err.response?.data?.error || "Login failed. Please check your credentials.");
+      }
     } finally {
       setLoading(false);
     }
@@ -103,7 +107,11 @@ export default function AuthView({ onAuthSuccess, theme, onToggleTheme, onReplay
       saveSession(data.token, data.user, true);
       onAuthSuccess(data.user);
     } catch (err) {
-      setError(err.response?.data?.error || "Registration failed. Please check your details.");
+      if (!err.response || (err.response.status >= 500 && !err.response.data?.error)) {
+        setError("Cannot reach the CampusFix backend server (http://127.0.0.1:5000). Run 'npm run backend' or start backend/app.py.");
+      } else {
+        setError(err.response?.data?.error || "Registration failed. Please check your details.");
+      }
     } finally {
       setLoading(false);
     }
